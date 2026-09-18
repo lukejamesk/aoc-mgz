@@ -26,15 +26,23 @@ def parse_action_71094(action_type, player_id, raw):
         elif command_id in [13, 14, 17, 18]:
             payload['number'] = unpack('<4xh', data)
     if action_type is Action.DE_QUEUE:
-        # The trailing `4x` in the previous format string consumed the exact
-        # bytes meant to hold `object_ids`, so the unpack below always threw
-        # "unpack requires a buffer of 4 bytes" and every Queue action was
-        # silently downgraded to Action.ERROR by the caller (mgz/fast/__init__.py
-        # action()). Verified against known-good values recovered from an
-        # independent parse of the same replay (unit_id=83 "Villager",
-        # object_ids=[2266] "Town Center", amount=1) and cross-checked
-        # against multiple DE_QUEUE samples.
-        selected, building_type, unit_id, amount = unpack('<h4xhhh', data)
+        # DE_QUEUE's fixed header has been observed in two lengths: 12 bytes
+        # (`<h4xhhh`, no trailing padding) or 16 bytes (`<h4xhhh4x`, 4 bytes
+        # of reserved/padding data before the object_ids array). An earlier
+        # fix here (PR #146) hardcoded the 12-byte header, on the belief that
+        # a trailing `4x` was swallowing the object_ids bytes -- but an
+        # exhaustive replay of every DE_QUEUE action (1052 total) across all
+        # three known save versions (66.6, 67.2, 68.0) shows the header is
+        # *always* 16 bytes: assuming 12 silently misreads the header's own
+        # reserved field as the first object id, yielding small counter-like
+        # values (e.g. 1) instead of the real object id (e.g. 3090). Rather
+        # than hardcode either width by save version, derive it from the
+        # payload's actual length, which is self-describing here: `selected`
+        # (the object-id count) plus the two candidate header widths gives
+        # exactly one length that matches the bytes we actually have.
+        selected = struct.unpack_from('<h', raw)[0]
+        header_fmt = '<h4xhhh4x' if len(raw) == 16 + 4 * selected else '<h4xhhh'
+        _selected, building_type, unit_id, amount = unpack(header_fmt, data)
         object_ids = list(unpack(f'<{selected}I', data, shorten=False))
         payload = dict(object_ids=object_ids, amount=amount, unit_id=unit_id)
     if action_type is Action.MOVE:
