@@ -111,6 +111,39 @@ def parse_action_71094(action_type, player_id, raw):
         if selected > 0:
             object_ids = list(unpack(f'<{selected}I', data, shorten=False))
         payload = dict(object_ids=object_ids, target_id=target_id, x=x, y=y)
+    if action_type is Action.WORK:
+        # WORK (aka "ai_interact" in the legacy body parser, mgz/body/actions.py's
+        # `ai_interact` struct) has never had a parser here and fell through to the
+        # generic `{"sequence": N}` payload. Its layout was derived empirically from
+        # every WORK action (63,513) in the September 2026 vs-AI fixture -- the only
+        # known fixture that contains any: WORK is emitted exclusively by the
+        # AI-controlled player (type 3) there, at roughly the game's tick rate
+        # (~40ms between repeats for the same unit), while human-issued equivalents
+        # go through ORDER instead. It is byte-for-byte the same shape as ORDER
+        # (Action.ORDER, above): `target_id u32, x f32, y f32, selected i16`, 6
+        # reserved bytes (observed constant as `00 00 01 00 00 00` across every
+        # instance -- always the same value, so left unnamed/unread rather than
+        # guessed at), then `selected` object ids. Every one of the 63,513 payloads
+        # is exactly 24 bytes = 14 (header) + 6 (reserved) + 4*1, with selected == 1
+        # in all of them.
+        #
+        # Validation against the same fixture:
+        #  - object_ids (the tasked unit): 81/88 distinct ids also appear as
+        #    object ids in the same player's BUILD/DE_QUEUE/ORDER/MAKE actions;
+        #    4087 and 4089 additionally resolve to that player's starting Villagers
+        #    via the header's object list. None are 0 or 0xffffffff.
+        #  - target_id: the top target ids by frequency resolve, via the header's
+        #    gaia object list, to Gold Mine / Stone Mine / Bush / Tree instances --
+        #    i.e. WORK's target is the resource (or other object) being worked, and
+        #    targets cluster heavily (the top 10 of 155 distinct targets account for
+        #    more than half of all WORK actions) rather than being uniform.
+        #  - x/y fall within the match's 120x120 map on every sample checked.
+        target_id, x, y, selected = unpack('<I2fh', data)
+        object_ids = []
+        data.read(6)
+        if selected > 0:
+            object_ids = list(unpack(f'<{selected}I', data, shorten=False))
+        payload = dict(object_ids=object_ids, target_id=target_id, x=x, y=y)
     if action_type is Action.BUILD:
         selected, x, y, building_id, unk2, unk3, unk4 = unpack('<h2xffI8xhbb', data)
         object_ids = list(unpack(f'{selected}I', data, shorten=False))
