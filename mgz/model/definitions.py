@@ -60,6 +60,11 @@ class Player:
     winner: bool = False
     eapm: int = None
     rate_snapshot: int = None
+    # From the DE header's player struct (mgz/header/de.py): the game's own player type
+    # (PlayerTypeEnum: 2 human, 4 computer, 5 cyborg, 1 closed, ...) and the AI personality
+    # name, e.g. "Jayanegara". Previously parsed and then discarded when building this model.
+    player_type: int = None
+    ai_name: str = None
 
     def __repr__(self):
         return self.name

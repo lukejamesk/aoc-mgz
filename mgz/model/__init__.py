@@ -160,6 +160,10 @@ def parse_match(handle):
         de_player = de_players.get(player['number'])
         if de_player:
             player.update(de_player)
+        raw_ai_name = player.get('ai_name')
+        ai_name = (
+            raw_ai_name.decode(encoding, 'replace') if isinstance(raw_ai_name, bytes) else raw_ai_name
+        )
         pos_x = None
         pos_y = None
         for obj in player['objects']:
@@ -189,6 +193,8 @@ def parse_match(handle):
             [],
             player.get('prefer_random'),
             player.get('handicap', 100),
+            player_type=player.get('type'),
+            ai_name=ai_name or None,
         )
 
     # Assign teams
