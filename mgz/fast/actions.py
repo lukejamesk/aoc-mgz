@@ -26,22 +26,45 @@ def parse_action_71094(action_type, player_id, raw):
         elif command_id in [13, 14, 17, 18]:
             payload['number'] = unpack('<4xh', data)
     if action_type is Action.DE_QUEUE:
-        # DE_QUEUE's fixed header has been observed in two lengths: 12 bytes
-        # (`<h4xhhh`, no trailing padding) or 16 bytes (`<h4xhhh4x`, 4 bytes
-        # of reserved/padding data before the object_ids array). An earlier
-        # fix here (PR #146) hardcoded the 12-byte header, on the belief that
-        # a trailing `4x` was swallowing the object_ids bytes -- but an
-        # exhaustive replay of every DE_QUEUE action (1052 total) across all
-        # three known save versions (66.6, 67.2, 68.0) shows the header is
-        # *always* 16 bytes: assuming 12 silently misreads the header's own
-        # reserved field as the first object id, yielding small counter-like
-        # values (e.g. 1) instead of the real object id (e.g. 3090). Rather
-        # than hardcode either width by save version, derive it from the
-        # payload's actual length, which is self-describing here: `selected`
-        # (the object-id count) plus the two candidate header widths gives
-        # exactly one length that matches the bytes we actually have.
+        # DE_QUEUE's fixed header width is derived from the payload's own
+        # length rather than hardcoded, because the two header widths that
+        # have ever been proposed for this action disagree by exactly the 4
+        # reserved/padding bytes before the object_ids array:
+        #   - 16 bytes (`<h4xhhh4x`): the layout actually observed, with zero
+        #     exceptions, in an exhaustive replay of every DE_QUEUE action
+        #     (1052 total) across all three known save versions (66.6, 67.2,
+        #     68.0).
+        #   - 12 bytes (`<h4xhhh`): PR #146's claim. It has never been
+        #     observed in any fixture we've checked; assuming it silently
+        #     misreads the 16-byte header's own reserved field as the first
+        #     object id, yielding small counter-like values (e.g. 1) instead
+        #     of a real object id (e.g. 3090).
+        # Rather than hardcode either width, or silently guess when a
+        # payload matches neither, we compute the two candidate lengths from
+        # `selected` (the object-id count, read from the payload's own first
+        # field) and require the payload to match one of them exactly. A
+        # payload matching neither -- which would previously either mis-
+        # decode (if long enough to satisfy the 12-byte guess) or raise
+        # struct.error that mgz/fast/__init__.py's action() silently
+        # downgrades to Action.ERROR (if too short) -- now raises ValueError
+        # instead, so it's surfaced to callers as a real parse failure
+        # rather than swallowed or silently wrong. ValueError is deliberate:
+        # neither action() nor operation() in mgz/fast/__init__.py catches
+        # anything but struct.error, so this propagates out of parse_match.
         selected = struct.unpack_from('<h', raw)[0]
-        header_fmt = '<h4xhhh4x' if len(raw) == 16 + 4 * selected else '<h4xhhh'
+        if selected < 0:
+            raise ValueError(f"DE_QUEUE: negative selected count {selected}")
+        padded_len = 16 + 4 * selected
+        unpadded_len = 12 + 4 * selected
+        if len(raw) == padded_len:
+            header_fmt = '<h4xhhh4x'
+        elif len(raw) == unpadded_len:
+            header_fmt = '<h4xhhh'
+        else:
+            raise ValueError(
+                f"DE_QUEUE: unexpected payload length {len(raw)} for selected={selected} "
+                f"(expected {unpadded_len} or {padded_len})"
+            )
         _selected, building_type, unit_id, amount = unpack(header_fmt, data)
         object_ids = list(unpack(f'<{selected}I', data, shorten=False))
         payload = dict(object_ids=object_ids, amount=amount, unit_id=unit_id)
