@@ -26,7 +26,21 @@ def parse_action_71094(action_type, player_id, raw):
         elif command_id in [13, 14, 17, 18]:
             payload['number'] = unpack('<4xh', data)
     if action_type is Action.DE_QUEUE:
-        selected, building_type, unit_id, amount, *object_ids = unpack('<h4xhhh4x', data)
+        # The header is followed by `selected` uint32 object ids. Every DE_QUEUE
+        # observed in save 66.6/67.2/68.0 replays (1053 actions) has a 16-byte
+        # header (trailing 4 bytes of padding); a 12-byte header without the
+        # padding has also been reported. Pick the layout from the payload
+        # length and fail loudly on anything else rather than mis-decode.
+        selected = struct.unpack_from('<h', raw)[0]
+        if len(raw) == 16 + 4 * selected:
+            header_fmt = '<h4xhhh4x'
+        elif len(raw) == 12 + 4 * selected:
+            header_fmt = '<h4xhhh'
+        else:
+            raise ValueError(
+                f"DE_QUEUE: unexpected payload length {len(raw)} for selected={selected}"
+            )
+        selected, building_type, unit_id, amount = unpack(header_fmt, data)
         object_ids = list(unpack(f'<{selected}I', data, shorten=False))
         payload = dict(object_ids=object_ids, amount=amount, unit_id=unit_id)
     if action_type is Action.MOVE:
