@@ -12,8 +12,22 @@ def parse_action_71094(action_type, player_id, raw):
     if action_type is Action.RESIGN:
         unpack('<b', data)
     if action_type is Action.RESEARCH:
+        # A 13-byte header, normally followed by `selected` building ids.
+        # AI-issued research (seen on save 68.0) is the bare 13-byte header
+        # with selected=1 and no id list. Pick the layout from the payload
+        # length and fail loudly on anything else.
+        selected = struct.unpack_from('<h', raw, 4)[0]
+        if len(raw) == 13 + 4 * selected:
+            has_id_list = True
+        elif len(raw) == 13:
+            has_id_list = False
+        else:
+            raise ValueError(
+                f"RESEARCH: unexpected payload length {len(raw)} for selected={selected}"
+            )
         object_id, selected, technology_id = unpack('<Ihh5x', data)
-        selected_building_ids = unpack(f'<{selected}I', data, shorten=False)
+        if has_id_list:
+            unpack(f'<{selected}I', data, shorten=False)
         payload = dict(technology_id=technology_id, object_ids=[object_id])
     if action_type is Action.GAME:
         command_id = unpack('<h', data)
