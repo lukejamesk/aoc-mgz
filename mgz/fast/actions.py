@@ -12,8 +12,37 @@ def parse_action_71094(action_type, player_id, raw):
     if action_type is Action.RESIGN:
         unpack('<b', data)
     if action_type is Action.RESEARCH:
-        object_id, selected, technology_id = unpack('<Ihh5x', data)
-        selected_building_ids = unpack(f'<{selected}I', data, shorten=False)
+        # RESEARCH is a 13-byte header (`<Ihh5x`: object_id, selected,
+        # technology_id, then 5 bytes observed as `ff ff ff ff 00`),
+        # optionally followed by `selected` building ids. Which one applies is
+        # derived from the payload length, not the player type:
+        #   - 13 + 4 * selected: player-issued research. Every RESEARCH in the
+        #     66.6, 67.2 and 68.0 fixtures issued by a human has this layout
+        #     (lengths 17/21/25/33/37), and object_id repeats the last id in
+        #     the trailing list.
+        #   - 13 with selected >= 1: AI-issued research. All 14 AI RESEARCH
+        #     actions in the 68.0 vs-AI fixture are exactly 13 bytes with
+        #     selected=1 and no id list (e.g. `e4 0f 00 00 01 00 65 00 ff ff
+        #     ff ff 00` = building 4068 researching Feudal Age, tech 101).
+        #     Reading `selected` ids here used to raise struct.error, which
+        #     action() downgraded to Action.ERROR, dropping the AI's techs.
+        # Any other length raises ValueError (not caught by action()) so a new
+        # layout surfaces as a real failure instead of being swallowed.
+        selected = struct.unpack_from('<h', raw, 4)[0]
+        if selected < 0:
+            raise ValueError(f"RESEARCH: negative selected count {selected}")
+        if len(raw) == 13 + 4 * selected:
+            has_id_list = True
+        elif len(raw) == 13:
+            has_id_list = False
+        else:
+            raise ValueError(
+                f"RESEARCH: unexpected payload length {len(raw)} for selected={selected} "
+                f"(expected 13 or {13 + 4 * selected})"
+            )
+        object_id, _selected, technology_id = unpack('<Ihh5x', data)
+        if has_id_list:
+            unpack(f'<{selected}I', data, shorten=False)
         payload = dict(technology_id=technology_id, object_ids=[object_id])
     if action_type is Action.GAME:
         command_id = unpack('<h', data)
