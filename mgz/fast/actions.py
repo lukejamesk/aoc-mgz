@@ -201,6 +201,15 @@ def parse_action_71094(action_type, player_id, raw):
         object_ids = list(unpack(f'{selected}I', data, shorten=False))
         payload = dict(object_ids=object_ids)
     if action_type is Action.MAKE:
-        building_id, unit_id = unpack('<H6xh', data)
+        # MAKE is aoe2rec's "AiQueue" (action 100): three 32-bit fields --
+        #   s32 building_id (the producer's object *instance* id, not a building type),
+        #   s32 unknown1 (observed sentinel -1),
+        #   s32 unit_type_id.
+        # See aoe2ct/aoe2rec `patterns/aoe2operations.hexpat` (struct AiQueue) and the raw
+        # bytes in the September 2026 vs-AI fixture:
+        #   e4 0f 00 00 ff ff ff ff 53 00 00 00  = producer 4068, -1, unit 83 (Villager).
+        # The previous `<H6xh` read truncated any instance id >= 65536 and took only the low
+        # half of the unit type field.
+        building_id, unit_id = unpack('<I4xi', data)
         payload = dict(building_id=building_id, unit_id=unit_id)
     return dict(player_id=player_id, **payload)
