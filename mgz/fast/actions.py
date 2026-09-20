@@ -138,7 +138,35 @@ def parse_action_71094(action_type, player_id, raw):
         #    targets cluster heavily (the top 10 of 155 distinct targets account for
         #    more than half of all WORK actions) rather than being uniform.
         #  - x/y fall within the match's 120x120 map on every sample checked.
-        target_id, x, y, selected = unpack('<I2fh', data)
+        #
+        # Cross-checked against aoe2rec's `patterns/aoe2operations.hexpat` (action 2,
+        # there called `AiInteract`). It reads the same 20-byte header as
+        # `s32 target_id, float x, float y, s32 unknown_count_1, s32 unknown_1`, i.e.
+        # it takes the object-id count to be a 32-bit field at offset 12 where this
+        # reads a 16-bit `selected` at the same offset. The two readings agree on every
+        # payload in the fixture (the count's high half is 0 in all 63,513, and the
+        # following s32 is a constant 1), and both put the count at offset 12 -- which
+        # is also where ORDER, the action this shares its shape with, carries `selected`.
+        # They could only diverge if the real count lived in the *second* s32 instead.
+        #
+        # So the payload length is validated rather than trusted: 20 bytes of header
+        # plus exactly 4 * selected bytes of object ids. `unpack` (mgz.util) reads from
+        # a BytesIO and silently ignores trailing bytes, so without this check a payload
+        # whose count sat in the other field would decode to a plausible-looking but
+        # wrong object-id list instead of failing. ValueError is deliberate and matches
+        # RESEARCH/DE_QUEUE above: neither action() nor operation() in mgz/fast/__init__.py
+        # catches anything but struct.error, so a new layout surfaces as a real failure
+        # rather than being swallowed into Action.ERROR or decoded wrongly.
+        selected = struct.unpack_from('<h', raw, 12)[0]
+        if selected < 0:
+            raise ValueError(f"WORK: negative selected count {selected}")
+        expected_len = 20 + 4 * selected
+        if len(raw) != expected_len:
+            raise ValueError(
+                f"WORK: unexpected payload length {len(raw)} for selected={selected} "
+                f"(expected {expected_len})"
+            )
+        target_id, x, y, _selected = unpack('<I2fh', data)
         object_ids = []
         data.read(6)
         if selected > 0:

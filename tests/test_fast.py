@@ -125,11 +125,26 @@ class TestFastActionWork(unittest.TestCase):
         self.assertEqual(payload['object_ids'], [4087])
 
     def test_exact_consumption(self):
-        # 14-byte header + 6 reserved bytes + 4 * selected object ids, exactly:
-        # unpack() (mgz.util) raises if any input bytes are left over.
+        # 14-byte header + 6 reserved bytes + 4 * selected object ids, exactly.
         raw = bytes.fromhex('5a1000000000d34200005a4201000000010000003c140000')
         self.assertEqual(len(raw), 24)
         parse_action_71094(Action.WORK, 2, raw)  # must not raise
+
+    def test_unexpected_length_raises(self):
+        # unpack() (mgz.util) reads from a BytesIO, so trailing bytes are silently
+        # ignored rather than raising -- the payload length is what catches a payload
+        # that does not match the layout. aoe2rec's hexpat reads the object-id count as
+        # a 32-bit field at offset 12 where this reads a 16-bit one; a payload whose
+        # count really lived in the following s32 would otherwise decode to a wrong
+        # object-id list instead of failing. See mgz/fast/actions.py.
+        raw = bytes.fromhex('5a1000000000d34200005a4201000000010000003c140000')
+        self.assertRaises(ValueError, parse_action_71094, Action.WORK, 2, raw + b'\x00\x00\x00\x00')
+        self.assertRaises(ValueError, parse_action_71094, Action.WORK, 2, raw[:-4])
+
+    def test_negative_selected_raises(self):
+        # selected is read as a signed 16-bit field; a negative count is not a length.
+        raw = bytes.fromhex('5a1000000000d34200005a42ffff0000010000003c140000')
+        self.assertRaises(ValueError, parse_action_71094, Action.WORK, 2, raw)
 
     def test_multiple_selected_object_ids(self):
         # Every observed WORK action has selected == 1; this constructs a
