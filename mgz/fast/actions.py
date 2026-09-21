@@ -188,7 +188,7 @@ def parse_action_71094(action_type, player_id, raw):
         object_ids = list(unpack(f'{selected}I', data, shorten=False))
         payload = dict(stance_id=stance_id, object_ids=object_ids)
     if action_type is Action.SPECIAL:
-        selected, target_id, x, y, slot_id, order_id = unpack('<Iiff4xh2xh2x', data)
+        selected, target_id, x, y, slot_id, order_id = unpack('<Iiff4xh2xh3x', data)
         object_ids = list(unpack(f'{selected}I', data, shorten=False))
         payload = dict(order_id=order_id, slot_id=slot_id, target_id=target_id, x=x, y=y, object_ids=object_ids)
     if action_type is Action.FORMATION:

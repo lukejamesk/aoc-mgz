@@ -156,3 +156,48 @@ class TestFastActionWork(unittest.TestCase):
         raw = header + ids
         payload = parse_action_71094(Action.WORK, 2, raw)
         self.assertEqual(payload['object_ids'], [5180, 5181])
+
+
+class TestFastActionSpecial(unittest.TestCase):
+    """Raw Unqueue payloads from each AgeLens replay generation."""
+
+    def test_unqueue_object_ids_start_after_the_29_byte_header(self):
+        cases = (
+            (
+                'December 2025 save 66.6',
+                2,
+                '01000000ffffffff0000000000000000ffffffff0000000004000001000b0c0000',
+                0,
+                3083,
+            ),
+            (
+                'February 2026 save 67.2',
+                2,
+                '01000000ffffffff0000000000000000ffffffff010000000400000100500b0000',
+                1,
+                2896,
+            ),
+            (
+                'September 2026 save 68.0',
+                1,
+                '01000000ffffffff0000000000000000ffffffff030000000400000100dd0f0000',
+                3,
+                4061,
+            ),
+        )
+
+        for generation, player_id, raw_hex, slot_id, object_id in cases:
+            with self.subTest(generation=generation):
+                payload = parse_action_71094(Action.SPECIAL, player_id, bytes.fromhex(raw_hex))
+                self.assertEqual(
+                    payload,
+                    {
+                        'player_id': player_id,
+                        'order_id': 4,
+                        'slot_id': slot_id,
+                        'target_id': -1,
+                        'x': 0.0,
+                        'y': 0.0,
+                        'object_ids': [object_id],
+                    },
+                )
